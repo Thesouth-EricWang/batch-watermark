@@ -10,6 +10,10 @@ settings.json
 logs/
 启动错误.log
 
+# 用户自备的标志图（通常含机构信息，不要进仓库）
+logo.png
+logo.webp
+
 # 早期网页版（已被桌面版取代，保留在本地不入库）
 批量加水印.html
 批量加水印.template.html

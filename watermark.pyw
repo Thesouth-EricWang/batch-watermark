@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """批量加水印 · 桌面版（CustomTkinter 界面）
-广州中医药大学 · 中医诊断学系
 
-纯本地运行，不联网、不上传。
+给一个文件夹里的图片批量加水印。纯本地运行，不联网、不上传。
 - 基础设置（位置/大小/深浅自适应）按文件夹保存，下次打开同一文件夹自动恢复。
 - 描边 / 毛玻璃为「单张增强」，默认收起，仅对当前这张图开启，导出时逐张套用。
+标志图：工具目录下的 logo.png（没有则用 logo_placeholder.png）。
 配置文件与日志都在本工具目录（settings.json、logs/app.log）。
 快捷键：← → 翻页；滚轮缩放、按住拖动、双击复原。
 """
@@ -22,7 +22,7 @@ import watermark_core as wc
 import watermark_store as store
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-LOGO_PATH = os.path.join(BASE, "logo_trans.png")
+LOGO_CANDIDATES = ("logo.png", "logo_placeholder.png")   # 用户自备标志优先，其次占位图
 SUPPORTED = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
 PREVIEW_MAX = 1100
 POPUP_MAX = 2200           # 查看原图窗口内部使用的最大边长（先降采样再合成，避免卡顿）
@@ -55,11 +55,25 @@ MODE_LABELS = {"follow": "跟随全局", "auto": "自动", "light": "原色", "d
 LABEL_MODES = {v: k for k, v in MODE_LABELS.items()}
 
 
-def load_logo():
-    if not os.path.exists(LOGO_PATH):
+def resolve_logo_path(cfg=None):
+    """标志图片位置：配置里指定的优先，其次工具目录下的 logo.png / 占位图。"""
+    p = (cfg or {}).get("logo_path")
+    if p and os.path.exists(p):
+        return p
+    for name in LOGO_CANDIDATES:
+        fp = os.path.join(BASE, name)
+        if os.path.exists(fp):
+            return fp
+    return None
+
+
+def load_logo(path=None):
+    if not path:
+        path = resolve_logo_path()
+    if not path or not os.path.exists(path):
         return None, None, None
     try:
-        logo = Image.open(LOGO_PATH).convert("RGBA")
+        logo = Image.open(path).convert("RGBA")
     except Exception:
         return None, None, None
     seal, text = wc.split_logo(logo)
@@ -300,12 +314,13 @@ class PreviewView:
 class App:
     def __init__(self, root):
         self.root = root
-        root.title("批量加水印 · 广州中医药大学中医诊断学系")
+        root.title(f"批量加水印 v{VERSION}")
         root.geometry("1200x760")
         root.minsize(1000, 640)
         root.configure(fg_color=C_BG)
 
-        self.logo_full, self.seal, self.text = load_logo()
+        self.cfg = store.load_config()
+        self.logo_full, self.seal, self.text = load_logo(resolve_logo_path(self.cfg))
         self.files = []
         self.idx = -1
         self.folder = None
@@ -322,8 +337,6 @@ class App:
         self._popup = None
         self._popup_queue = queue.Queue()
         self._alive = True
-
-        self.cfg = store.load_config()
 
         # 基础参数（按文件夹保存）
         self.corner = tk.StringVar(value="tl")
@@ -372,7 +385,8 @@ class App:
         self.root.after(120, self._poll_popup)
         if self.seal is None:
             messagebox.showwarning(
-                "缺标志", "找不到或无法解析 logo_trans.png（透明标志素材），请放在程序同一目录。")
+                "缺标志", "没找到可用的标志图片。请把标志图放到工具目录下的 logo.png，\n"
+                "或用菜单 设置 → 更换标志图片… 选一张。")
 
         root.bind("<Left>", lambda e: self.prev())
         root.bind("<Right>", lambda e: self.next())
@@ -392,7 +406,7 @@ class App:
         top.grid_columnconfigure(3, weight=1)
         ctk.CTkLabel(top, text="批量加水印", font=FONT_TITLE, text_color=C_TEXT).grid(
             row=0, column=0, padx=(18, 8), pady=12)
-        ctk.CTkLabel(top, text="广州中医药大学 · 中医诊断学系", font=FONT_S,
+        ctk.CTkLabel(top, text=f"v{VERSION} · 纯本地运行", font=FONT_S,
                      text_color=C_MUTED).grid(row=0, column=1, padx=(0, 18))
         ctk.CTkButton(top, text="选择文件夹", width=110, height=32, font=FONT_S,
                       fg_color=C_ACCENT, hover_color=C_ACCENT_HOVER, corner_radius=8,
@@ -454,12 +468,6 @@ class App:
         right = ctk.CTkScrollableFrame(panel_wrap, fg_color=C_PANEL, corner_radius=12)
         right.pack(fill="both", expand=True)
         right.grid_columnconfigure(0, weight=1)
-        # 让滚动条常驻，使内部可用宽度恒定（不随内容高度开关而变宽变窄）
-        try:
-            right._check_if_scrollbars_needed = lambda *a, **k: None
-            right._scrollbar.grid(row=0, column=1, sticky="ns")
-        except Exception:
-            pass
         self.right = right
 
         # 位置
@@ -517,14 +525,19 @@ class App:
         self.enh_mode_row.pack(fill="x", padx=12, pady=(0, 4))
         ctk.CTkLabel(self.enh_mode_row, text="水印黑白", font=FONT_S,
                      text_color=C_TEXT, anchor="w").pack(fill="x")
-        self.enh_mode_seg = ctk.CTkSegmentedButton(
-            self.enh_mode_row, values=["跟随全局", "自动", "原色", "反白"], font=FONT_S,
-            command=self._set_enh_mode,
-            selected_color=C_ACCENT, selected_hover_color=C_ACCENT_HOVER,
-            unselected_color=C_PANEL2, unselected_hover_color=C_LINE,
-            text_color=C_TEXT, height=28)
-        self.enh_mode_seg.set("跟随全局")
-        self.enh_mode_seg.pack(fill="x", pady=(2, 0))
+        mrow = ctk.CTkFrame(self.enh_mode_row, fg_color="transparent")
+        mrow.pack(fill="x", pady=(2, 0))
+        self._enh_mode_btns = {}
+        for i, (txt, code) in enumerate([("跟随", "follow"), ("自动", "auto"),
+                                         ("原色", "light"), ("反白", "dark")]):
+            b = ctk.CTkButton(mrow, text=txt, width=64, height=30, font=FONT_S,
+                              corner_radius=8,
+                              fg_color=C_ACCENT if code == "follow" else C_PANEL2,
+                              hover_color=C_ACCENT_HOVER,
+                              command=lambda c=code: self._set_enh_mode_code(c))
+            b.grid(row=0, column=i, padx=3, sticky="ew")
+            mrow.grid_columnconfigure(i, weight=1)
+            self._enh_mode_btns[code] = b
 
         self.enh_head = ctk.CTkFrame(right, fg_color="transparent")
         self.enh_head.pack(fill="x", padx=12, pady=(0, 4))
@@ -597,9 +610,17 @@ class App:
 
     # ---------------- 顶栏菜单 ----------------
     def _build_menu(self):
-        menubar = tk.Menu(self.root)
+        # tk.Menu 是原生控件，不吃 CTk 的缩放，这里手动对齐字号，否则和界面不成比例
+        try:
+            sc = ctk.ScalingTracker.get_widget_scaling()
+        except Exception:
+            sc = 1.0
+        mkw = dict(bg=C_PANEL, fg=C_TEXT, activebackground=C_ACCENT,
+                   activeforeground="#ffffff", bd=0, relief="flat",
+                   activeborderwidth=0, font=("Microsoft YaHei UI", max(9, int(round(10 * sc)))))
+        menubar = tk.Menu(self.root, **mkw)
 
-        m_file = tk.Menu(menubar, tearoff=0)
+        m_file = tk.Menu(menubar, tearoff=0, **mkw)
         m_file.add_command(label="打开图片文件夹…", accelerator="Ctrl+O",
                            command=self.pick_folder)
         m_file.add_command(label="打开输出文件夹", command=self._open_output_dir)
@@ -607,14 +628,15 @@ class App:
         m_file.add_command(label="退出", command=self._on_close)
         menubar.add_cascade(label="文件", menu=m_file)
 
-        m_set = tk.Menu(menubar, tearoff=0)
+        m_set = tk.Menu(menubar, tearoff=0, **mkw)
+        m_set.add_command(label="更换标志图片…", command=self._change_logo)
         m_set.add_command(label="输出位置与导出格式…", command=self._export_dialog)
         m_set.add_command(label="清除本文件夹的增强默认", command=self._clear_folder_enh_default)
         m_set.add_separator()
         m_set.add_command(label="打开配置与日志目录", command=self._open_log)
         menubar.add_cascade(label="设置", menu=m_set)
 
-        m_about = tk.Menu(menubar, tearoff=0)
+        m_about = tk.Menu(menubar, tearoff=0, **mkw)
         m_about.add_command(label="关于本工具…", command=self._show_about)
         menubar.add_cascade(label="关于", menu=m_about)
 
@@ -625,6 +647,36 @@ class App:
         self._menubar = menubar
         self.root.bind("<Control-o>", lambda e: self.pick_folder())
         self.root.bind("<Control-O>", lambda e: self.pick_folder())
+
+    def _change_logo(self):
+        """更换默认标志图片：拷到工具目录下的 logo.png，并记住。"""
+        p = filedialog.askopenfilename(
+            title="选择标志图片（建议透明底 PNG）",
+            filetypes=[("图片", "*.png *.webp *.bmp"), ("所有文件", "*.*")])
+        if not p:
+            return
+        try:
+            im = Image.open(p).convert("RGBA")
+        except Exception as e:
+            messagebox.showerror("无法读取", str(e))
+            return
+        dst = os.path.join(BASE, "logo.png")
+        try:
+            im.save(dst, "PNG")
+        except Exception as e:
+            messagebox.showerror("保存失败", str(e))
+            return
+        self.cfg["logo_path"] = dst
+        store.save_config(self.cfg)
+        self.logo_full, self.seal, self.text = load_logo(dst)
+        if self.seal is None:
+            messagebox.showwarning("标志不可用",
+                                   "这张图无法拆分成校徽与文字两部分，请换一张。")
+        else:
+            store.log(f"更换标志：{p} -> {dst}")
+        # 标志换了，预览要重算
+        self._composed_key = None
+        self._schedule_repaint()
 
     def _open_output_dir(self):
         d = self._resolve_out_dir()
@@ -644,25 +696,29 @@ class App:
 
     def _show_about(self):
         win = ctk.CTkToplevel(self.root)
-        win.title("关于")
-        win.geometry("460x320")
+        win.title("关于 批量加水印")
+        win.geometry("470x340")
         win.configure(fg_color=C_BG)
         try:
             win.transient(self.root)
         except Exception:
             pass
+
         ctk.CTkLabel(win, text="批量加水印", font=FONT_TITLE,
                      text_color=C_TEXT).pack(anchor="w", padx=24, pady=(22, 2))
-        ctk.CTkLabel(win, text="广州中医药大学 · 中医诊断学系", font=FONT_S,
-                     text_color=C_MUTED).pack(anchor="w", padx=24)
         ctk.CTkLabel(win, text=f"版本 {VERSION}", font=FONT_S,
-                     text_color=C_MUTED).pack(anchor="w", padx=24, pady=(6, 10))
-        ctk.CTkLabel(win, text="给图片批量加上学系标志的水印工具。\n"
-                               "纯本地运行，不联网、不上传图片。\n"
-                               "配置与日志保存在本工具目录。",
+                     text_color=C_MUTED).pack(anchor="w", padx=24)
+        ctk.CTkLabel(win, text="给一个文件夹里的图片批量加水印的桌面工具。",
                      font=FONT_S, text_color=C_TEXT, justify="left",
-                     anchor="w").pack(anchor="w", padx=24, pady=(0, 12))
-        ctk.CTkButton(win, text="打开 GitHub 仓库", width=180, height=32, font=FONT_S,
+                     anchor="w").pack(anchor="w", padx=24, pady=(12, 2))
+        ctk.CTkLabel(win, text="纯本地运行，不联网、不上传图片。", font=FONT_S,
+                     text_color=C_TEXT, justify="left",
+                     anchor="w").pack(anchor="w", padx=24)
+        ctk.CTkLabel(win, text="Python · Pillow · CustomTkinter", font=FONT_S,
+                     text_color=C_MUTED).pack(anchor="w", padx=24, pady=(10, 0))
+        ctk.CTkLabel(win, text="MIT License  ·  Copyright (c) 2026 Thesouth",
+                     font=FONT_S, text_color=C_MUTED).pack(anchor="w", padx=24, pady=(2, 12))
+        ctk.CTkButton(win, text="打开项目主页", width=170, height=32, font=FONT_S,
                       fg_color=C_PANEL2, hover_color=C_ACCENT, corner_radius=8,
                       command=lambda: webbrowser.open(GITHUB_URL)).pack(anchor="w", padx=24)
         ctk.CTkLabel(win, text=GITHUB_URL, font=FONT_S, text_color=C_MUTED,
@@ -721,7 +777,7 @@ class App:
         try:
             self.outline_seg.set({0: "无", 1: "白", 2: "黑", 3: "双色"}[self.outline_style.get()])
             self.plate_seg.set("开" if self.plate.get() else "关")
-            self.enh_mode_seg.set(MODE_LABELS.get(self.enh_mode.get(), "跟随全局"))
+            self._sync_enh_mode_btns()
         except Exception:
             pass
 
@@ -755,7 +811,21 @@ class App:
 
     def _set_enh_mode(self, label):
         self.enh_mode.set(LABEL_MODES.get(label, "follow"))
+        self._sync_enh_mode_btns()
         self._on_enh_change()
+
+    def _set_enh_mode_code(self, code):
+        self.enh_mode.set(code)
+        self._sync_enh_mode_btns()
+        self._on_enh_change()
+
+    def _sync_enh_mode_btns(self):
+        cur = self.enh_mode.get()
+        for code, b in self._enh_mode_btns.items():
+            try:
+                b.configure(fg_color=C_ACCENT if code == cur else C_PANEL2)
+            except Exception:
+                pass
 
     def _set_plate(self, label):
         self.plate.set(1 if label == "开" else 0)
@@ -808,9 +878,13 @@ class App:
         # 只在状态真的变化时改，避免每次拖动都触发重建导致跳动
         if want != getattr(self, "_enh_state", None):
             self._enh_state = want
-            for wdg in (self.enh_switch, self.enh_mode_seg):
+            try:
+                self.enh_switch.configure(state=want)
+            except Exception:
+                pass
+            for b in self._enh_mode_btns.values():
                 try:
-                    wdg.configure(state=want)
+                    b.configure(state=want)
                 except Exception:
                     pass
         if self.enh_on.get() == 1 and has_img:
@@ -1234,7 +1308,7 @@ class App:
         if not self.files:
             return
         if self.seal is None:
-            messagebox.showerror("错误", "缺少透明标志素材 logo_trans.png")
+            messagebox.showerror("错误", "缺少标志图片：请用菜单 设置 → 更换标志图片… 选一张。")
             return
         self._export_dialog()
 
@@ -1331,7 +1405,7 @@ class App:
         if not self.files:
             return
         if self.seal is None:
-            messagebox.showerror("错误", "缺少透明标志素材 logo_trans.png")
+            messagebox.showerror("错误", "缺少标志图片：请用菜单 设置 → 更换标志图片… 选一张。")
             return
         out_dir = self._resolve_out_dir()
         if not out_dir:
