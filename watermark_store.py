@@ -61,14 +61,25 @@ def load_config():
 
 def save_config(cfg):
     try:
-        tmp = CONFIG_PATH + ".tmp"
+        text = json.dumps(cfg, ensure_ascii=False, indent=2)
+    except Exception as e:
+        log("配置序列化失败: " + repr(e))
+        return False
+    tmp = CONFIG_PATH + ".tmp"
+    try:
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, ensure_ascii=False, indent=2)
+            f.write(text)
         os.replace(tmp, CONFIG_PATH)
         return True
     except Exception as e:
-        log("保存配置失败: " + repr(e))
-        return False
+        log("原子写配置失败，改用直接写: " + repr(e))
+        try:
+            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                f.write(text)
+            return True
+        except Exception as e2:
+            log("直接写配置也失败: " + repr(e2))
+            return False
 
 
 def get_folder_cfg(cfg, folder):
@@ -77,4 +88,4 @@ def get_folder_cfg(cfg, folder):
 
 def set_folder_cfg(cfg, folder, data):
     cfg.setdefault("folders", {})[folder] = data
-    save_config(cfg)
+    return save_config(cfg)

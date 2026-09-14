@@ -403,21 +403,30 @@ class App:
 
         top = ctk.CTkFrame(root, fg_color=C_PANEL, corner_radius=0, height=56)
         top.grid(row=0, column=0, columnspan=2, sticky="ew")
-        top.grid_columnconfigure(3, weight=1)
+        top.grid_columnconfigure(4, weight=1)
+
+        # 应用内自绘菜单：不用系统菜单条（那条是 Windows 画的，改不了色），
+        # 这样才能保证顶栏配色和界面一致；下拉菜单保持系统默认色。
+        menuf = ctk.CTkFrame(top, fg_color="transparent")
+        menuf.grid(row=0, column=0, padx=(10, 6), pady=12)
+        self._make_menu_button(menuf, "文件", self._menu_file)
+        self._make_menu_button(menuf, "设置", self._menu_set)
+        self._make_menu_button(menuf, "关于", self._menu_about)
+
         ctk.CTkLabel(top, text="批量加水印", font=FONT_TITLE, text_color=C_TEXT).grid(
-            row=0, column=0, padx=(18, 8), pady=12)
+            row=0, column=1, padx=(6, 8), pady=12)
         ctk.CTkLabel(top, text=f"v{VERSION} · 纯本地运行", font=FONT_S,
-                     text_color=C_MUTED).grid(row=0, column=1, padx=(0, 18))
+                     text_color=C_MUTED).grid(row=0, column=2, padx=(0, 18))
+        self.folder_lb = ctk.CTkLabel(top, text="", font=FONT_S, text_color=C_MUTED)
+        self.folder_lb.grid(row=0, column=4, padx=(0, 10), sticky="e")
         ctk.CTkButton(top, text="选择文件夹", width=110, height=32, font=FONT_S,
                       fg_color=C_ACCENT, hover_color=C_ACCENT_HOVER, corner_radius=8,
-                      command=self.pick_folder).grid(row=0, column=4, padx=(6, 6))
+                      command=self.pick_folder).grid(row=0, column=5, padx=(6, 6))
         self.export_btn = ctk.CTkButton(
             top, text="导出全部", width=110, height=32, font=FONT_S,
             fg_color="#3a4a41", hover_color=C_ACCENT, corner_radius=8,
             state="disabled", command=self.export)
-        self.export_btn.grid(row=0, column=5, padx=(0, 16))
-        self.folder_lb = ctk.CTkLabel(top, text="", font=FONT_S, text_color=C_MUTED)
-        self.folder_lb.grid(row=0, column=2, padx=(0, 10), sticky="e")
+        self.export_btn.grid(row=0, column=6, padx=(0, 16))
 
         # 左：预览
         left = ctk.CTkFrame(root, fg_color=C_PANEL, corner_radius=12)
@@ -589,64 +598,51 @@ class App:
             fg_color=C_PANEL, hover_color=C_ACCENT, corner_radius=8,
             command=self._save_folder_enh_default)
 
-        # 配置 / 日志
-        self._section(right, "配置与日志")
-        ctk.CTkLabel(right, text="设置按文件夹保存在本工具目录的 settings.json；\n"
-                                 "运行日志在 logs/app.log。不会写入你的图片文件夹。",
-                     font=FONT_S, text_color=C_MUTED, justify="left", anchor="w",
-                     wraplength=286).pack(fill="x", padx=12, pady=(0, 6))
-        ctk.CTkButton(right, text="打开日志", width=110, height=28, font=FONT_S,
-                      fg_color=C_PANEL2, hover_color=C_ACCENT, corner_radius=8,
-                      command=self._open_log).pack(fill="x", padx=12, pady=(0, 12))
-
         ctk.CTkLabel(right, text="预览：滚轮或 −/＋ 缩放（只看缩略图，不卡）；\n"
                                  "看真实效果点「查看原图」，新窗口后台渲染。",
                      font=FONT_S, text_color=C_MUTED, anchor="w",
-                     justify="left", wraplength=286).pack(fill="x", padx=12, pady=(4, 14))
+                     justify="left", wraplength=286).pack(fill="x", padx=12, pady=(14, 14))
 
     def _section(self, parent, title):
         ctk.CTkLabel(parent, text=title, font=FONT_H,
                      text_color=C_ACCENT, anchor="w").pack(fill="x", padx=12, pady=(12, 4))
 
-    # ---------------- 顶栏菜单 ----------------
+    # ---------------- 顶栏菜单（自绘，下拉用系统默认配色）----------------
     def _build_menu(self):
-        # tk.Menu 是原生控件，不吃 CTk 的缩放，这里手动对齐字号，否则和界面不成比例
-        try:
-            sc = ctk.ScalingTracker.get_widget_scaling()
-        except Exception:
-            sc = 1.0
-        mkw = dict(bg=C_PANEL, fg=C_TEXT, activebackground=C_ACCENT,
-                   activeforeground="#ffffff", bd=0, relief="flat",
-                   activeborderwidth=0, font=("Microsoft YaHei UI", max(9, int(round(10 * sc)))))
-        menubar = tk.Menu(self.root, **mkw)
-
-        m_file = tk.Menu(menubar, tearoff=0, **mkw)
-        m_file.add_command(label="打开图片文件夹…", accelerator="Ctrl+O",
-                           command=self.pick_folder)
-        m_file.add_command(label="打开输出文件夹", command=self._open_output_dir)
-        m_file.add_separator()
-        m_file.add_command(label="退出", command=self._on_close)
-        menubar.add_cascade(label="文件", menu=m_file)
-
-        m_set = tk.Menu(menubar, tearoff=0, **mkw)
-        m_set.add_command(label="更换标志图片…", command=self._change_logo)
-        m_set.add_command(label="输出位置与导出格式…", command=self._export_dialog)
-        m_set.add_command(label="清除本文件夹的增强默认", command=self._clear_folder_enh_default)
-        m_set.add_separator()
-        m_set.add_command(label="打开配置与日志目录", command=self._open_log)
-        menubar.add_cascade(label="设置", menu=m_set)
-
-        m_about = tk.Menu(menubar, tearoff=0, **mkw)
-        m_about.add_command(label="关于本工具…", command=self._show_about)
-        menubar.add_cascade(label="关于", menu=m_about)
-
-        try:
-            tk.Tk.configure(self.root, menu=menubar)
-        except Exception:
-            pass
-        self._menubar = menubar
         self.root.bind("<Control-o>", lambda e: self.pick_folder())
         self.root.bind("<Control-O>", lambda e: self.pick_folder())
+
+    def _make_menu_button(self, parent, label, builder):
+        btn = ctk.CTkButton(parent, text=label, width=52, height=30, font=FONT_S,
+                            fg_color="transparent", hover_color=C_PANEL2,
+                            text_color=C_TEXT, corner_radius=8)
+        btn.pack(side="left", padx=1)
+        menu = tk.Menu(self.root, tearoff=0)     # 不做自定义，保持系统默认色
+        builder(menu)
+
+        def popup():
+            try:
+                menu.tk_popup(btn.winfo_rootx(), btn.winfo_rooty() + btn.winfo_height())
+            finally:
+                menu.grab_release()
+
+        btn.configure(command=popup)
+        return btn
+
+    def _menu_file(self, m):
+        m.add_command(label="打开图片文件夹…", accelerator="Ctrl+O", command=self.pick_folder)
+        m.add_command(label="打开输出文件夹", command=self._open_output_dir)
+        m.add_separator()
+        m.add_command(label="退出", command=self._on_close)
+
+    def _menu_set(self, m):
+        m.add_command(label="更换标志图片…", command=self._change_logo)
+        m.add_command(label="输出位置与导出格式…", command=self._export_dialog)
+        m.add_command(label="清除本文件夹的增强默认", command=self._clear_folder_enh_default)
+
+    def _menu_about(self, m):
+        m.add_command(label="关于本工具…", command=self._show_about)
+        m.add_command(label="打开配置与日志目录", command=self._open_log)
 
     def _change_logo(self):
         """更换默认标志图片：拷到工具目录下的 logo.png，并记住。"""
@@ -1006,7 +1002,9 @@ class App:
             "enh_default": self.folder_enh,
             "output_dir": self.output_dir,
         }
-        store.set_folder_cfg(self.cfg, self.folder, data)
+        ok = store.set_folder_cfg(self.cfg, self.folder, data)
+        if not ok:
+            store.log(f"保存配置未成功：{self.folder}")
 
     # ---------------- 预览 ----------------
     def _load_preview(self, idx):
@@ -1275,8 +1273,8 @@ class App:
                 self.root.after_cancel(self._save_job)
                 self._save_job = None
             self._save_now()          # 关窗前强制落盘
-        except Exception:
-            pass
+        except Exception as e:
+            store.log(f"关窗前保存失败: {e!r}")
         try:
             self.root.destroy()
         except Exception:
