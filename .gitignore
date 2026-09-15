@@ -19,6 +19,13 @@ logo.webp
 批量加水印.template.html
 inject_logo.js
 
+# 打包产物
+build/
+build-onefile/
+dist/
+dist-onefile/
+*.spec
+
 # 编辑器 / 系统
 .vs/
 .vscode/

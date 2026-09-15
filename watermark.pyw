@@ -9,6 +9,7 @@
 快捷键：← → 翻页；滚轮缩放、按住拖动、双击复原。
 """
 import os
+import sys
 import math
 import queue
 import threading
@@ -21,7 +22,9 @@ import customtkinter as ctk
 import watermark_core as wc
 import watermark_store as store
 
-BASE = os.path.dirname(os.path.abspath(__file__))
+BASE = os.path.dirname(os.path.abspath(
+    sys.executable if getattr(sys, "frozen", False) else __file__))
+BUNDLE = getattr(sys, "_MEIPASS", BASE)     # 打包后内置资源所在的解包目录
 LOGO_CANDIDATES = ("logo.png", "logo_placeholder.png")   # 用户自备标志优先，其次占位图
 SUPPORTED = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
 PREVIEW_MAX = 1100
@@ -56,14 +59,15 @@ LABEL_MODES = {v: k for k, v in MODE_LABELS.items()}
 
 
 def resolve_logo_path(cfg=None):
-    """标志图片位置：配置里指定的优先，其次工具目录下的 logo.png / 占位图。"""
+    """标志图片位置：配置里指定的优先；其次 exe 旁 / data 目录 / 内置资源里的 logo。"""
     p = (cfg or {}).get("logo_path")
     if p and os.path.exists(p):
         return p
-    for name in LOGO_CANDIDATES:
-        fp = os.path.join(BASE, name)
-        if os.path.exists(fp):
-            return fp
+    for d in (BASE, getattr(store, "DATA_DIR", BASE), BUNDLE):
+        for name in LOGO_CANDIDATES:
+            fp = os.path.join(d, name)
+            if os.path.exists(fp):
+                return fp
     return None
 
 
@@ -659,9 +663,13 @@ class App:
         dst = os.path.join(BASE, "logo.png")
         try:
             im.save(dst, "PNG")
-        except Exception as e:
-            messagebox.showerror("保存失败", str(e))
-            return
+        except Exception:
+            dst = os.path.join(store.DATA_DIR, "logo.png")
+            try:
+                im.save(dst, "PNG")
+            except Exception as e:
+                messagebox.showerror("保存失败", str(e))
+                return
         self.cfg["logo_path"] = dst
         store.save_config(self.cfg)
         self.logo_full, self.seal, self.text = load_logo(dst)

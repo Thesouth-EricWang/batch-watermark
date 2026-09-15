@@ -6,13 +6,42 @@
 日志文件：本工具目录下的 logs/app.log，记录启动、打开文件夹、导出、错误等。
 """
 import os
+import sys
 import json
 import time
 import threading
 
-BASE = os.path.dirname(os.path.abspath(__file__))
-CONFIG_PATH = os.path.join(BASE, "settings.json")
-LOG_DIR = os.path.join(BASE, "logs")
+
+def _app_dir():
+    """程序所在目录。打包成 exe 后取 exe 位置，开发时取脚本目录。"""
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def _data_dir():
+    """配置与日志的存放目录：优先程序目录下的 data\\；不可写则退回 %APPDATA%。"""
+    prefer = os.path.join(_app_dir(), "data")
+    try:
+        os.makedirs(prefer, exist_ok=True)
+        probe = os.path.join(prefer, ".write_test")
+        with open(probe, "w", encoding="utf-8") as f:
+            f.write("ok")
+        os.remove(probe)
+        return prefer
+    except Exception:
+        fallback = os.path.join(os.environ.get("APPDATA") or _app_dir(), "batch-watermark")
+        try:
+            os.makedirs(fallback, exist_ok=True)
+        except Exception:
+            pass
+        return fallback
+
+
+APP_DIR = _app_dir()
+DATA_DIR = _data_dir()
+CONFIG_PATH = os.path.join(DATA_DIR, "settings.json")
+LOG_DIR = os.path.join(DATA_DIR, "logs")
 LOG_PATH = os.path.join(LOG_DIR, "app.log")
 LOG_MAX = 2 * 1024 * 1024      # 超过 2MB 轮转为 app.log.1
 
