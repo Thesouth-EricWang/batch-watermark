@@ -642,7 +642,23 @@ class App:
     def _menu_set(self, m):
         m.add_command(label="更换标志图片…", command=self._change_logo)
         m.add_command(label="输出位置与导出格式…", command=self._export_dialog)
+        m.add_separator()
+        m.add_command(label="立即保存配置", command=self._save_manual)
         m.add_command(label="清除本文件夹的增强默认", command=self._clear_folder_enh_default)
+
+    def _save_manual(self):
+        """手动保存一次配置（自动保存之外的手动兜底）。"""
+        if not self.folder:
+            messagebox.showinfo(
+                "暂时无处可存",
+                "配置是「按文件夹」保存的，现在还没打开图片文件夹。\n"
+                "先选一个文件夹，再回来保存。")
+            return
+        self._save_now()
+        messagebox.showinfo(
+            "已保存",
+            f"配置已保存到：\n{store.CONFIG_PATH}\n\n"
+            f"所属文件夹：\n{self.folder}")
 
     def _menu_about(self, m):
         m.add_command(label="关于本工具…", command=self._show_about)
@@ -931,23 +947,7 @@ class App:
         saved = store.get_folder_cfg(self.cfg, d)
         self.enh_store = {}
         if saved:
-            base = saved.get("base") or {}
-            self._loading = True
-            try:
-                self.corner.set(base.get("corner", "tl"))
-                self.mode.set(base.get("mode", "auto"))
-                self.size_pct.set(int(base.get("size_pct", 20)))
-                self.margin_pct.set(int(base.get("margin_pct", 4)))
-                self.opacity_pct.set(int(base.get("opacity_pct", 100)))
-                self.disc_alpha.set(int(base.get("disc_alpha", 92)))
-                self.disc_pad.set(int(base.get("disc_pad", 2)))
-                self.dark_threshold.set(int(base.get("dark_threshold", 148)))
-                self.export_format.set(base.get("export_format", "keep"))
-                self.export_quality.set(int(base.get("export_quality", 92)))
-            finally:
-                self._loading = False
-            self._sync_corner_btns()
-            self._sync_mode_seg()
+            self._apply_base_dict(saved.get("base") or {})
             fd = saved.get("enh_default")
             self.folder_enh = dict(ENH_DEFAULT, **fd) if fd else None
             self.enh_store = {k: dict(self._enh_default(), **v)
@@ -955,11 +955,32 @@ class App:
             self.output_dir = saved.get("output_dir")
             store.log(f"打开文件夹 {d}（{len(files)} 张，已载入配置）")
         else:
-            self.folder_enh = None
+            # 没配置过的文件夹：继承上次的全局默认（而不是硬默认），这样"调一次就处处生效"
+            self.folder_enh = self.cfg.get("defaults_enh") or None
             self.output_dir = None
-            store.log(f"打开文件夹 {d}（{len(files)} 张，无历史配置）")
+            self._apply_base_dict(self.cfg.get("defaults") or {})
+            store.log(f"打开文件夹 {d}（{len(files)} 张，继承全局默认）")
 
         self._load_preview(0)
+
+    def _apply_base_dict(self, base):
+        """把一份常规参数应用到界面（缺项保持当前值）。"""
+        self._loading = True
+        try:
+            self.corner.set(base.get("corner", self.corner.get()))
+            self.mode.set(base.get("mode", self.mode.get()))
+            self.size_pct.set(int(base.get("size_pct", self.size_pct.get())))
+            self.margin_pct.set(int(base.get("margin_pct", self.margin_pct.get())))
+            self.opacity_pct.set(int(base.get("opacity_pct", self.opacity_pct.get())))
+            self.disc_alpha.set(int(base.get("disc_alpha", self.disc_alpha.get())))
+            self.disc_pad.set(int(base.get("disc_pad", self.disc_pad.get())))
+            self.dark_threshold.set(int(base.get("dark_threshold", self.dark_threshold.get())))
+            self.export_format.set(base.get("export_format", self.export_format.get()))
+            self.export_quality.set(int(base.get("export_quality", self.export_quality.get())))
+        finally:
+            self._loading = False
+        self._sync_corner_btns()
+        self._sync_mode_seg()
 
     def _sync_corner_btns(self):
         cur = self.corner.get()
@@ -1010,6 +1031,8 @@ class App:
             "enh_default": self.folder_enh,
             "output_dir": self.output_dir,
         }
+        self.cfg["defaults"] = dict(data["base"])   # 同时记为全局默认，供未配置过的文件夹继承
+        self.cfg["defaults_enh"] = self._enh_dict_from_vars()
         ok = store.set_folder_cfg(self.cfg, self.folder, data)
         if not ok:
             store.log(f"保存配置未成功：{self.folder}")
