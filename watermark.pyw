@@ -643,7 +643,9 @@ class App:
         m.add_command(label="更换标志图片…", command=self._change_logo)
         m.add_command(label="输出位置与导出格式…", command=self._export_dialog)
         m.add_separator()
-        m.add_command(label="立即保存配置", command=self._save_manual)
+        m.add_command(label="保存为此文件夹", command=self._save_as_folder)
+        m.add_command(label="保存为默认配置（新文件夹都用它）", command=self._save_as_default)
+        m.add_separator()
         m.add_command(label="清除本文件夹的增强默认", command=self._clear_folder_enh_default)
 
     def _save_manual(self):
@@ -665,7 +667,7 @@ class App:
         m.add_command(label="打开配置与日志目录", command=self._open_log)
 
     def _change_logo(self):
-        """更换默认标志图片：拷到工具目录下的 logo.png，并记住。"""
+        """更换默认标志图片：拷到程序目录下的 logo.png，并记入默认配置。"""
         p = filedialog.askopenfilename(
             title="选择标志图片（建议透明底 PNG）",
             filetypes=[("图片", "*.png *.webp *.bmp"), ("所有文件", "*.*")])
@@ -1013,26 +1015,55 @@ class App:
             self.root.after_cancel(self._save_job)
         self._save_job = self.root.after(700, self._save_now)
 
+    def _current_base(self):
+        return {
+            "corner": self.corner.get(), "mode": self.mode.get(),
+            "size_pct": self.size_pct.get(), "margin_pct": self.margin_pct.get(),
+            "opacity_pct": self.opacity_pct.get(),
+            "disc_alpha": self.disc_alpha.get(), "disc_pad": self.disc_pad.get(),
+            "dark_threshold": self.dark_threshold.get(),
+            "export_format": self.export_format.get(),
+            "export_quality": self.export_quality.get(),
+        }
+
+    def _save_as_folder(self):
+        """只保存为本文件夹的配置（不动全局默认）。"""
+        if not self.folder:
+            messagebox.showinfo("先选文件夹",
+                                "配置是按文件夹保存的，请先打开一个图片文件夹。")
+            return
+        self._save_now()
+        messagebox.showinfo(
+            "已保存为此文件夹",
+            f"已保存给：\n{self.folder}\n\n配置文件：\n{store.CONFIG_PATH}")
+
+    def _save_as_default(self):
+        """存为全局默认：没单独配置过的文件夹都会用它，含标志图。"""
+        self.cfg["defaults"] = self._current_base()
+        self.cfg["defaults_enh"] = self._enh_dict_from_vars()
+        lp = resolve_logo_path(self.cfg)
+        if lp:
+            self.cfg["logo_path"] = lp
+        ok = store.save_config(self.cfg)
+        msg = ("已存为默认配置：\n"
+               "· 标志图、尺寸与位置、深色底适配、导出格式\n"
+               "· 单张增强的默认值\n\n"
+               "以后打开没有单独配置过的文件夹，都会用这一套。")
+        if not ok:
+            msg += "\n\n（注意：写入配置文件失败，详情见 logs/app.log）"
+        messagebox.showinfo("已保存为默认配置", msg)
+
     def _save_now(self):
+        """自动保存：只写当前文件夹的配置，不改全局默认。"""
         self._save_job = None
         if not self.folder:
             return
         data = {
-            "base": {
-                "corner": self.corner.get(), "mode": self.mode.get(),
-                "size_pct": self.size_pct.get(), "margin_pct": self.margin_pct.get(),
-                "opacity_pct": self.opacity_pct.get(),
-                "disc_alpha": self.disc_alpha.get(), "disc_pad": self.disc_pad.get(),
-                "dark_threshold": self.dark_threshold.get(),
-                "export_format": self.export_format.get(),
-                "export_quality": self.export_quality.get(),
-            },
+            "base": self._current_base(),
             "enh": self.enh_store,
             "enh_default": self.folder_enh,
             "output_dir": self.output_dir,
         }
-        self.cfg["defaults"] = dict(data["base"])   # 同时记为全局默认，供未配置过的文件夹继承
-        self.cfg["defaults_enh"] = self._enh_dict_from_vars()
         ok = store.set_folder_cfg(self.cfg, self.folder, data)
         if not ok:
             store.log(f"保存配置未成功：{self.folder}")
